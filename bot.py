@@ -40,6 +40,9 @@ VERSION   = "1.0"
 # Capitale di riferimento (aggiornato ogni ciclo dal portfolio Alpaca)
 _capital_cache: Decimal = rm.CAPITALE_TOTALE
 
+# Evita di rispedire la notifica "mercato chiuso" ad ogni ciclo
+_market_closed_notified: bool = False
+
 
 def _get_current_capital() -> Decimal:
     val = ac.get_portfolio_value()
@@ -156,11 +159,43 @@ def run_market_close_report() -> None:
 
 # ── Loop principale (ogni ora) ─────────────────────────────────────────────────
 
+def _market_closed_reason() -> str:
+    """Ritorna una stringa leggibile sul motivo per cui il mercato è chiuso."""
+    now = mh.now_et()
+    if now.weekday() == 5:
+        return "weekend (sabato)"
+    if now.weekday() == 6:
+        return "weekend (domenica)"
+    if mh.is_holiday(now.date()):
+        return "festività NYSE"
+    t = now.time()
+    from datetime import time as dtime
+    if t < dtime(9, 30):
+        mins = mh.minutes_to_open()
+        return f"pre-market (apertura tra {mins} min)"
+    return "post-market (chiuso dopo le 16:00 ET)"
+
+
+def _notify_market_closed(reason: str, next_open: str) -> None:
+    """Manda la notifica solo la prima volta, poi tace fino alla riapertura."""
+    global _market_closed_notified
+    if not _market_closed_notified:
+        tg.send_generic(
+            f"😴 Mercato chiuso — {reason}\n"
+            f"Prossima apertura: {next_open}\n"
+            f"Il bot è attivo e attende in silenzio."
+        )
+        _market_closed_notified = True
+
+
 def run_hourly_cycle() -> None:
-    global _capital_cache
+    global _capital_cache, _market_closed_notified
 
     if not mh.is_trading_day():
-        logger.debug("Giorno non lavorativo, skip")
+        reason  = _market_closed_reason()
+        next_td = mh.next_trading_day()
+        logger.debug(f"Giorno non lavorativo: {reason}, skip")
+        _notify_market_closed(reason, next_td.strftime("%A %d/%m") + " 09:30 ET")
         return
 
     # Verifica mercato aperto tramite Alpaca clock (più affidabile per festività)
@@ -172,6 +207,7 @@ def run_hourly_cycle() -> None:
 
     # Briefing pre-mercato (09:24–09:26)
     if mh.is_pre_market_briefing_time():
+        _market_closed_notified = False
         run_pre_market_briefing()
         return
 
@@ -181,15 +217,31 @@ def run_hourly_cycle() -> None:
         return
 
     if not market_open:
-        logger.debug("Mercato chiuso, skip ciclo")
+        reason = _market_closed_reason()
+        logger.debug(f"Mercato chiuso ({reason}), skip ciclo")
+        _notify_market_closed(reason, "oggi 09:30 ET")
         return
+
+    # Mercato aperto: resetta il flag così alla prossima chiusura notifica di nuovo
+    _market_closed_notified = False
 
     if rm.is_bot_paused():
         logger.info("Bot in pausa (2 SL consecutivi)")
+        tg.send_generic("⏸ Bot in pausa (2 SL consecutivi). Riprende domani 09:25 ET.")
         return
 
     _capital_cache = _get_current_capital()
     logger.info(f"Ciclo orario — capitale: ${_capital_cache:.2f}")
+
+    # P&L di giornata: confronto con capitale iniziale configurato
+    pnl_today     = float(_capital_cache) - float(rm.CAPITALE_TOTALE)
+    pnl_today_pct = pnl_today / float(rm.CAPITALE_TOTALE) * 100 if rm.CAPITALE_TOTALE else 0
+
+    # Ore al close (mercato chiude alle 16:00 ET)
+    now_et        = mh.now_et()
+    from datetime import time as dtime
+    close_dt      = now_et.replace(hour=16, minute=0, second=0, microsecond=0)
+    mins_to_close = max(0, int((close_dt - now_et).total_seconds() / 60))
 
     # Scarica dati SPY 1h per VIX proxy (usati da tutti gli asset)
     df_spy_1h = ac.get_bars_1h("SPY", bars=5)
@@ -205,10 +257,13 @@ def run_hourly_cycle() -> None:
             tg.send_error(f"[{symbol}] Errore ciclo: {e}")
 
     if cycle_results:
-        cycle_time = mh.now_et().strftime("%H:%M ET")
+        cycle_time = now_et.strftime("%H:%M ET")
         tg.send_analysis_cycle(
             cycle_time=cycle_time,
             capital=float(_capital_cache),
+            pnl_today=pnl_today,
+            pnl_today_pct=pnl_today_pct,
+            mins_to_close=mins_to_close,
             results=cycle_results,
         )
 
@@ -256,20 +311,39 @@ def _process_asset(symbol: str, df_spy_1h) -> dict | None:
             logger.debug(f"[{symbol}] BUY bloccato: {reason}")
 
     unrealized_pct = None
+    ema50_dist_pct = None
+    next_sl        = None
+    next_tp        = None
+
+    if sig.ema50 > 0:
+        ema50_dist_pct = (sig.close - sig.ema50) / sig.ema50 * 100
+
     if is_active and entry_px:
         unrealized_pct = (sig.close - entry_px) / entry_px * 100
+        pos_data = pm.get_position(symbol)
+        if pos_data.get("tp1_hit"):
+            next_sl = pos_data.get("sl")   # breakeven
+            next_tp = pos_data.get("tp2")
+        else:
+            next_sl = pos_data.get("sl")
+            next_tp = pos_data.get("tp1")
 
     return {
-        "symbol":       symbol,
-        "signal":       sig.signal,
-        "close":        sig.close,
-        "rsi":          sig.rsi,
-        "ema50_ok":     sig.close > sig.ema50,
-        "macd_bull":    sig.macd_hist > 0 or sig.macd_bullish_cross,
-        "vol_ratio":    sig.volume_ratio,
-        "active":       is_active,
+        "symbol":        symbol,
+        "signal":        sig.signal,
+        "close":         sig.close,
+        "rsi":           sig.rsi,
+        "ema50":         sig.ema50,
+        "ema50_ok":      sig.close > sig.ema50,
+        "ema50_dist_pct": ema50_dist_pct,
+        "macd_hist":     sig.macd_hist,
+        "macd_bull":     sig.macd_hist > 0 or sig.macd_bullish_cross,
+        "vol_ratio":     sig.volume_ratio,
+        "active":        is_active,
         "unrealized_pct": unrealized_pct,
-        "block_reason": block_reason,
+        "next_sl":       next_sl,
+        "next_tp":       next_tp,
+        "block_reason":  block_reason,
     }
 
 

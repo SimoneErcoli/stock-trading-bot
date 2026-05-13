@@ -251,13 +251,11 @@ def send_market_close_report(
 def send_analysis_cycle(
     cycle_time: str,
     capital: float,
+    pnl_today: float,
+    pnl_today_pct: float,
+    mins_to_close: int,
     results: list[dict],
 ) -> None:
-    """
-    Inviato al termine di ogni ciclo orario.
-    results: lista di dict con chiavi symbol, signal, close, rsi,
-             ema50_ok, macd_bull, vol_ratio, active, unrealized_pct, block_reason.
-    """
     lines = []
     for r in results:
         symbol   = r["symbol"]
@@ -271,7 +269,7 @@ def send_analysis_cycle(
         if signal == "BUY" and not blocked:
             sig_icon = "🟢 BUY"
         elif signal == "BUY" and blocked:
-            sig_icon = f"🔵 BUY bloccato"
+            sig_icon = "🔵 BUY bloccato"
         elif signal == "SELL":
             sig_icon = "🔴 SELL"
         else:
@@ -282,26 +280,58 @@ def send_analysis_cycle(
         vol       = r.get("vol_ratio", 1.0)
         vol_icon  = "✅" if vol >= 1.3 else "❌"
 
-        pos_line = ""
+        # EMA50: valore + distanza %
+        ema50       = r.get("ema50", 0)
+        ema50_dist  = r.get("ema50_dist_pct")
+        ema50_str   = f"${ema50:.2f}"
+        if ema50_dist is not None:
+            sign = "+" if ema50_dist >= 0 else ""
+            ema50_str += f" ({sign}{ema50_dist:.1f}%)"
+
+        # MACD histogram
+        macd_hist = r.get("macd_hist", 0)
+        macd_sign = "+" if macd_hist >= 0 else ""
+        macd_str  = f"{macd_sign}{macd_hist:.4f}"
+
+        # Posizione aperta: P&L + livelli SL/TP
+        pos_lines = ""
         if active and unreal is not None:
-            sign = "+" if unreal >= 0 else ""
-            pos_line = f" | pos: {sign}{unreal:.1f}%"
+            p_sign   = "+" if unreal >= 0 else ""
+            pos_lines += f"\n  📍 Pos: {p_sign}{unreal:.2f}%"
+            next_sl = r.get("next_sl")
+            next_tp = r.get("next_tp")
+            if next_sl:
+                pos_lines += f" | SL ${next_sl:.2f}"
+            if next_tp:
+                label = "TP2" if r.get("tp1_hit") else "TP1"
+                pos_lines += f" | {label} ${next_tp:.2f}"
 
         block_line = f"\n  ↳ {blocked}" if blocked else ""
 
         lines.append(
-            f"<b>{symbol}</b> {sig_icon} | ${close:.2f} | RSI {rsi:.1f}"
-            f" | EMA {ema_icon} MACD {macd_icon} Vol {vol_icon}{pos_line}"
+            f"<b>{symbol}</b> {sig_icon}\n"
+            f"  💲 ${close:.2f} | RSI {rsi:.1f} | Vol {vol:.1f}x {vol_icon}\n"
+            f"  EMA50 {ema50_str} {ema_icon}\n"
+            f"  MACD {macd_str} {macd_icon}"
+            f"{pos_lines}"
             f"{block_line}"
         )
 
-    body = "\n".join(lines) if lines else "Nessun dato"
+    body = "\n\n".join(lines) if lines else "Nessun dato"
+
+    pnl_sign = "+" if pnl_today >= 0 else ""
+    pnl_icon = "📈" if pnl_today >= 0 else "📉"
+    h, m     = divmod(mins_to_close, 60)
+    close_str = f"{h}h {m}m" if h else f"{m}m"
+
     msg = (
         f"🔍 <b>Analisi {cycle_time}</b>\n"
         f"━━━━━━━━━━━━━━━\n"
         f"{body}\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"💼 Capitale: ${capital:.2f}"
+        f"💼 Capitale: <b>${capital:.2f}</b>\n"
+        f"{pnl_icon} P&amp;L oggi: {pnl_sign}${pnl_today:.2f} ({pnl_sign}{pnl_today_pct:.2f}%)\n"
+        f"🕐 Close tra: {close_str}"
     )
     _send(msg)
 
