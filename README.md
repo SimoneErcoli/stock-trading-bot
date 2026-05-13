@@ -107,6 +107,51 @@ I log vengono scritti sia su terminale che su `bot.log` (rotazione 7 giorni).
 
 ---
 
+## Notifiche Telegram
+
+Il bot invia su Telegram i seguenti messaggi:
+
+| Momento | Messaggio |
+|---|---|
+| Avvio | Conferma che il bot è partito |
+| 09:25 ET | Briefing pre-mercato con RSI e trend di tutti gli asset |
+| Ogni ora (mercato aperto) | **Riepilogo ciclo di analisi** (vedi sotto) |
+| Segnale BUY | Ordine limit inviato + conferma esecuzione |
+| TP1 raggiunto | Vendita parziale, nuovo SL al breakeven, TP2 aperto |
+| TP2 raggiunto | Chiusura completa con profitto |
+| Stop loss | Chiusura con perdita e contatore SL consecutivi |
+| 2 SL consecutivi | Alert pausa — bot fermo fino al giorno successivo |
+| 16:00 ET | Report di chiusura giornata con P&L e posizioni overnight |
+| Errore non gestito | Notifica immediata con descrizione dell'errore |
+
+### Riepilogo ciclo orario
+
+Al termine di ogni ciclo il bot invia un messaggio unico con lo stato dei tre asset:
+
+```
+🔍 Analisi 10:00 ET
+━━━━━━━━━━━━━━━
+SPY ⚪ HOLD | $528.40 | RSI 55.2 | EMA ✅ MACD ❌ Vol ❌
+QQQ 🟢 BUY  | $441.20 | RSI 44.8 | EMA ✅ MACD ✅ Vol ✅
+IWM 🔵 BUY bloccato | $198.30 | RSI 39.1 | EMA ✅ MACD ✅ Vol ✅
+  ↳ cooldown 2h: ancora 47 minuti
+━━━━━━━━━━━━━━━
+💼 Capitale: $101.44
+```
+
+Legenda icone segnale:
+
+| Icona | Significato |
+|---|---|
+| 🟢 BUY | Tutti i criteri soddisfatti, ordine in corso |
+| 🔵 BUY bloccato | Segnale valido ma bloccato da una regola di rischio |
+| 🔴 SELL | Segnale di vendita (SL, TP o RSI/MACD) |
+| ⚪ HOLD | Nessun segnale operativo |
+
+Per ogni asset vengono mostrati: prezzo corrente, RSI, e tre check (✅/❌) per EMA50, MACD e Volume. Se la posizione è aperta appare anche il P&L non realizzato (es. `pos: +1.2%`).
+
+---
+
 ## 7. Girare in background su Linux con systemd
 
 Crea il file `/etc/systemd/system/trading-bot.service`:
