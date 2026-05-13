@@ -194,15 +194,26 @@ def run_hourly_cycle() -> None:
     # Scarica dati SPY 1h per VIX proxy (usati da tutti gli asset)
     df_spy_1h = ac.get_bars_1h("SPY", bars=5)
 
+    cycle_results: list[dict] = []
     for symbol in ASSETS:
         try:
-            _process_asset(symbol, df_spy_1h)
+            result = _process_asset(symbol, df_spy_1h)
+            if result:
+                cycle_results.append(result)
         except Exception as e:
             logger.error(f"[{symbol}] Errore non gestito nel ciclo: {e}")
             tg.send_error(f"[{symbol}] Errore ciclo: {e}")
 
+    if cycle_results:
+        cycle_time = mh.now_et().strftime("%H:%M ET")
+        tg.send_analysis_cycle(
+            cycle_time=cycle_time,
+            capital=float(_capital_cache),
+            results=cycle_results,
+        )
 
-def _process_asset(symbol: str, df_spy_1h) -> None:
+
+def _process_asset(symbol: str, df_spy_1h) -> dict | None:
     # 1. Controlla sempre lo stato degli ordini aperti
     om.check_open_orders_status(symbol)
 
@@ -211,7 +222,7 @@ def _process_asset(symbol: str, df_spy_1h) -> None:
 
     if df_1h.empty or df_daily.empty:
         logger.warning(f"[{symbol}] Dati insufficienti, skip")
-        return
+        return None
 
     pos       = pm.get_position(symbol)
     is_active = pos.get("active", False)
@@ -229,6 +240,8 @@ def _process_asset(symbol: str, df_spy_1h) -> None:
 
     logger.info(f"[{symbol}] {sig.signal} | RSI={sig.rsi:.1f} | close={sig.close:.2f} | {sig.reason}")
 
+    block_reason = ""
+
     if sig.signal == "SELL" and is_active:
         _handle_sell_signal(symbol, sig, pos)
 
@@ -239,7 +252,25 @@ def _process_asset(symbol: str, df_spy_1h) -> None:
             logger.info(f"[{symbol}] Apertura posizione")
             om.open_new_position(symbol, sig.close, _capital_cache)
         else:
+            block_reason = reason
             logger.debug(f"[{symbol}] BUY bloccato: {reason}")
+
+    unrealized_pct = None
+    if is_active and entry_px:
+        unrealized_pct = (sig.close - entry_px) / entry_px * 100
+
+    return {
+        "symbol":       symbol,
+        "signal":       sig.signal,
+        "close":        sig.close,
+        "rsi":          sig.rsi,
+        "ema50_ok":     sig.close > sig.ema50,
+        "macd_bull":    sig.macd_hist > 0 or sig.macd_bullish_cross,
+        "vol_ratio":    sig.volume_ratio,
+        "active":       is_active,
+        "unrealized_pct": unrealized_pct,
+        "block_reason": block_reason,
+    }
 
 
 def _handle_sell_signal(symbol: str, sig, pos: dict) -> None:

@@ -248,5 +248,63 @@ def send_market_close_report(
     _send(msg)
 
 
+def send_analysis_cycle(
+    cycle_time: str,
+    capital: float,
+    results: list[dict],
+) -> None:
+    """
+    Inviato al termine di ogni ciclo orario.
+    results: lista di dict con chiavi symbol, signal, close, rsi,
+             ema50_ok, macd_bull, vol_ratio, active, unrealized_pct, block_reason.
+    """
+    lines = []
+    for r in results:
+        symbol   = r["symbol"]
+        signal   = r["signal"]
+        close    = r["close"]
+        rsi      = r["rsi"]
+        active   = r.get("active", False)
+        unreal   = r.get("unrealized_pct")
+        blocked  = r.get("block_reason", "")
+
+        if signal == "BUY" and not blocked:
+            sig_icon = "🟢 BUY"
+        elif signal == "BUY" and blocked:
+            sig_icon = f"🔵 BUY bloccato"
+        elif signal == "SELL":
+            sig_icon = "🔴 SELL"
+        else:
+            sig_icon = "⚪ HOLD"
+
+        ema_icon  = "✅" if r.get("ema50_ok")  else "❌"
+        macd_icon = "✅" if r.get("macd_bull") else "❌"
+        vol       = r.get("vol_ratio", 1.0)
+        vol_icon  = "✅" if vol >= 1.3 else "❌"
+
+        pos_line = ""
+        if active and unreal is not None:
+            sign = "+" if unreal >= 0 else ""
+            pos_line = f" | pos: {sign}{unreal:.1f}%"
+
+        block_line = f"\n  ↳ {blocked}" if blocked else ""
+
+        lines.append(
+            f"<b>{symbol}</b> {sig_icon} | ${close:.2f} | RSI {rsi:.1f}"
+            f" | EMA {ema_icon} MACD {macd_icon} Vol {vol_icon}{pos_line}"
+            f"{block_line}"
+        )
+
+    body = "\n".join(lines) if lines else "Nessun dato"
+    msg = (
+        f"🔍 <b>Analisi {cycle_time}</b>\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"{body}\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"💼 Capitale: ${capital:.2f}"
+    )
+    _send(msg)
+
+
 def send_startup(version: str = "1.0") -> None:
     _send(f"🤖 <b>Bot avviato</b> (v{version})\nMonitoro: SPY, QQQ, IWM")
