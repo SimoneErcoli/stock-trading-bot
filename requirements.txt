@@ -1,0 +1,9 @@
+alpaca-py>=0.20.0
+pandas>=2.0.0
+pandas-ta>=0.3.14b
+python-telegram-bot>=21.0
+schedule>=1.2.0
+python-dotenv>=1.0.0
+loguru>=0.7.0
+pytz>=2024.1
+requests>=2.31.0
