@@ -129,26 +129,51 @@ Il bot invia su Telegram i seguenti messaggi:
 Al termine di ogni ciclo il bot invia un messaggio unico con lo stato dei tre asset:
 
 ```
-🔍 Analisi 10:00 ET
+🔍 Analisi 11:00 ET
 ━━━━━━━━━━━━━━━
-SPY ⚪ HOLD | $528.40 | RSI 55.2 | EMA ✅ MACD ❌ Vol ❌
-QQQ 🟢 BUY  | $441.20 | RSI 44.8 | EMA ✅ MACD ✅ Vol ✅
-IWM 🔵 BUY bloccato | $198.30 | RSI 39.1 | EMA ✅ MACD ✅ Vol ✅
+SPY ⚪ HOLD
+  💲 $528.40 | RSI 55.2 | Vol 0.9x ❌
+  EMA50 $512.30 (+3.1%) ✅
+  MACD +0.0821 ✅
+
+QQQ 🟢 BUY
+  💲 $441.20 | RSI 44.8 | Vol 1.6x ✅
+  EMA50 $435.10 (+1.4%) ✅
+  MACD +0.1243 ✅
+
+IWM 🔵 BUY bloccato
+  💲 $198.30 | RSI 39.1 | Vol 1.4x ✅
+  EMA50 $195.80 (+1.3%) ✅
+  MACD +0.0314 ✅
+  📍 Pos: +0.82% | SL $192.35 | TP1 $206.23
   ↳ cooldown 2h: ancora 47 minuti
 ━━━━━━━━━━━━━━━
 💼 Capitale: $101.44
+📈 P&L oggi: +$1.44 (+1.44%)
+🕐 Close tra: 4h 58m
 ```
 
-Legenda icone segnale:
+Per ogni asset vengono mostrati:
 
-| Icona | Significato |
+| Campo | Descrizione |
 |---|---|
-| 🟢 BUY | Tutti i criteri soddisfatti, ordine in corso |
-| 🔵 BUY bloccato | Segnale valido ma bloccato da una regola di rischio |
-| 🔴 SELL | Segnale di vendita (SL, TP o RSI/MACD) |
-| ⚪ HOLD | Nessun segnale operativo |
+| Segnale | 🟢 BUY / 🔵 BUY bloccato / 🔴 SELL / ⚪ HOLD |
+| Prezzo | Ultimo close della candela 1h |
+| RSI | RSI(14) — zona buy 35–50, sell >72 |
+| Volume | Moltiplicatore rispetto alla media 20 periodi (soglia ≥1.3x) |
+| EMA50 | Valore assoluto + distanza % dal prezzo corrente |
+| MACD | Valore dell'histogram (positivo = bullish) |
+| Posizione aperta | P&L non realizzato + livelli SL e TP1/TP2 attivi |
 
-Per ogni asset vengono mostrati: prezzo corrente, RSI, e tre check (✅/❌) per EMA50, MACD e Volume. Se la posizione è aperta appare anche il P&L non realizzato (es. `pos: +1.2%`).
+In fondo al messaggio:
+
+| Campo | Descrizione |
+|---|---|
+| Capitale | Valore corrente del portafoglio Alpaca |
+| P&L oggi | Variazione rispetto al capitale iniziale configurato |
+| Close tra | Ore e minuti alla chiusura del mercato (16:00 ET) |
+
+A mercato chiuso il bot invia una sola notifica `😴` alla prima chiusura rilevata, poi tace fino alla riapertura.
 
 ---
 
