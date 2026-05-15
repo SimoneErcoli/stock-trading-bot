@@ -25,6 +25,7 @@ class SignalResult:
     macd_bullish_cross: bool
     volume_ratio: float  # volume / media_20
     close: float
+    vwap: float = 0.0   # VWAP giornaliero (anchor=D sui dati 1h)
     sell_reason: str | None = None  # motivo specifico del SELL
 
 
@@ -50,6 +51,16 @@ def compute_indicators(df_1h: pd.DataFrame, df_daily: pd.DataFrame) -> pd.DataFr
     df_1h.ta.ema(length=200, append=True)
     df_1h.ta.macd(fast=12, slow=26, signal=9, append=True)
     df_1h["vol_ma20"] = df_1h["volume"].rolling(20).mean()
+
+    # VWAP giornaliero: si resetta ogni sessione (anchor='D')
+    # pandas-ta richiede che l'indice sia DatetimeTzAware per anchor giornaliero
+    try:
+        df_1h.ta.vwap(anchor="D", append=True)
+    except Exception:
+        df_1h["VWAP_D"] = (
+            (df_1h["close"] * df_1h["volume"]).cumsum()
+            / df_1h["volume"].cumsum()
+        )
 
     # EMA200 daily: usa l'ultimo valore disponibile
     df_daily = df_daily.copy()
@@ -129,9 +140,17 @@ def generate_signal(
     vol_ma20     = float(last.get("vol_ma20", 1)) or 1
     volume       = float(last["volume"])
     vol_ratio    = volume / vol_ma20
+    # VWAP: pandas-ta può generare VWAP_D o VWAP a seconda della versione
+    vwap_col = next((c for c in df.columns if c.startswith("VWAP")), None)
+    vwap     = float(last[vwap_col]) if vwap_col and pd.notna(last[vwap_col]) else 0.0
 
     bullish_cross = _is_macd_bullish_cross(df)
     bearish_div   = _is_macd_bearish_divergence(df)
+
+    _r = dict(rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
+              ema200_daily=ema200_daily, macd_hist=macd_hist,
+              macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio,
+              close=close, vwap=vwap)
 
     # --- Controlla SELL su posizione aperta ---
     if existing_entry_price and existing_entry_price > 0:
@@ -142,64 +161,39 @@ def generate_signal(
 
         if close <= sl_price:
             return SignalResult(symbol=symbol, signal="SELL", reason="Stop loss raggiunto",
-                                sell_reason="stop_loss",
-                                rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                                ema200_daily=ema200_daily, macd_hist=macd_hist,
-                                macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                                sell_reason="stop_loss", **_r)
 
         if not tp1_hit and close >= tp1_price:
             return SignalResult(symbol=symbol, signal="SELL", reason="TP1 raggiunto (+4%)",
-                                sell_reason="tp1",
-                                rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                                ema200_daily=ema200_daily, macd_hist=macd_hist,
-                                macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                                sell_reason="tp1", **_r)
 
         if tp1_hit and close >= tp2_price:
             return SignalResult(symbol=symbol, signal="SELL", reason="TP2 raggiunto (+8%)",
-                                sell_reason="tp2",
-                                rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                                ema200_daily=ema200_daily, macd_hist=macd_hist,
-                                macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                                sell_reason="tp2", **_r)
 
         if rsi > 72:
             return SignalResult(symbol=symbol, signal="SELL", reason=f"RSI > 72 ({rsi:.1f})",
-                                sell_reason="rsi_overbought",
-                                rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                                ema200_daily=ema200_daily, macd_hist=macd_hist,
-                                macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                                sell_reason="rsi_overbought", **_r)
 
         if bearish_div:
             return SignalResult(symbol=symbol, signal="SELL", reason="Divergenza bearish MACD",
-                                sell_reason="macd_bearish",
-                                rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                                ema200_daily=ema200_daily, macd_hist=macd_hist,
-                                macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                                sell_reason="macd_bearish", **_r)
 
     # --- Controlla BUY ---
     vix_spike = _is_vix_proxy_spike(df_spy_1h) if df_spy_1h is not None else False
     if vix_spike:
         return SignalResult(symbol=symbol, signal="HOLD",
-                            reason="VIX proxy: SPY -1.5% in 1h, no nuovi ingressi",
-                            rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                            ema200_daily=ema200_daily, macd_hist=macd_hist,
-                            macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                            reason="VIX proxy: SPY -1.5% in 1h, no nuovi ingressi", **_r)
 
-    buy_rsi      = 35 <= rsi <= 50
-    buy_ema      = close > ema50
-    buy_macd     = macd_hist > 0 or bullish_cross
-    buy_volume   = vol_ratio >= 1.3
+    buy_rsi    = 35 <= rsi <= 50
+    buy_ema    = close > ema50
+    buy_macd   = macd_hist > 0 or bullish_cross
+    buy_volume = vol_ratio >= 1.3
+    buy_vwap   = close > vwap if vwap > 0 else True  # ignora se VWAP non disponibile
 
-    if buy_rsi and buy_ema and buy_macd and buy_volume:
-        reasons = []
-        if not buy_rsi:    reasons.append(f"RSI={rsi:.1f} fuori 35-50")
-        if not buy_ema:    reasons.append("close < EMA50")
-        if not buy_macd:   reasons.append("MACD non bullish")
-        if not buy_volume: reasons.append(f"volume basso ({vol_ratio:.1f}x)")
+    if buy_rsi and buy_ema and buy_macd and buy_volume and buy_vwap:
         return SignalResult(symbol=symbol, signal="BUY",
-                            reason=f"Tutti i criteri BUY soddisfatti",
-                            rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                            ema200_daily=ema200_daily, macd_hist=macd_hist,
-                            macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                            reason="Tutti i criteri BUY soddisfatti (incl. VWAP)", **_r)
 
     # Costruisce ragione HOLD leggibile
     missing = []
@@ -207,9 +201,7 @@ def generate_signal(
     if not buy_ema:    missing.append("close < EMA50")
     if not buy_macd:   missing.append("MACD non bullish")
     if not buy_volume: missing.append(f"volume {vol_ratio:.1f}x (serve ≥1.3x)")
+    if not buy_vwap:   missing.append(f"close < VWAP ${vwap:.2f}")
 
     return SignalResult(symbol=symbol, signal="HOLD",
-                        reason="Condizioni BUY non soddisfatte: " + "; ".join(missing),
-                        rsi=rsi, ema20=ema20, ema50=ema50, ema200=ema200,
-                        ema200_daily=ema200_daily, macd_hist=macd_hist,
-                        macd_bullish_cross=bullish_cross, volume_ratio=vol_ratio, close=close)
+                        reason="Condizioni BUY non soddisfatte: " + "; ".join(missing), **_r)

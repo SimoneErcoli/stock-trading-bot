@@ -318,6 +318,10 @@ def _process_asset(symbol: str, df_spy_1h) -> dict | None:
     if sig.ema50 > 0:
         ema50_dist_pct = (sig.close - sig.ema50) / sig.ema50 * 100
 
+    vwap_dist_pct = None
+    if sig.vwap > 0:
+        vwap_dist_pct = (sig.close - sig.vwap) / sig.vwap * 100
+
     if is_active and entry_px:
         unrealized_pct = (sig.close - entry_px) / entry_px * 100
         pos_data = pm.get_position(symbol)
@@ -329,21 +333,24 @@ def _process_asset(symbol: str, df_spy_1h) -> dict | None:
             next_tp = pos_data.get("tp1")
 
     return {
-        "symbol":        symbol,
-        "signal":        sig.signal,
-        "close":         sig.close,
-        "rsi":           sig.rsi,
-        "ema50":         sig.ema50,
-        "ema50_ok":      sig.close > sig.ema50,
+        "symbol":         symbol,
+        "signal":         sig.signal,
+        "close":          sig.close,
+        "rsi":            sig.rsi,
+        "ema50":          sig.ema50,
+        "ema50_ok":       sig.close > sig.ema50,
         "ema50_dist_pct": ema50_dist_pct,
-        "macd_hist":     sig.macd_hist,
-        "macd_bull":     sig.macd_hist > 0 or sig.macd_bullish_cross,
-        "vol_ratio":     sig.volume_ratio,
-        "active":        is_active,
+        "macd_hist":      sig.macd_hist,
+        "macd_bull":      sig.macd_hist > 0 or sig.macd_bullish_cross,
+        "vol_ratio":      sig.volume_ratio,
+        "vwap":           sig.vwap,
+        "vwap_ok":        sig.close > sig.vwap if sig.vwap > 0 else None,
+        "vwap_dist_pct":  vwap_dist_pct,
+        "active":         is_active,
         "unrealized_pct": unrealized_pct,
-        "next_sl":       next_sl,
-        "next_tp":       next_tp,
-        "block_reason":  block_reason,
+        "next_sl":        next_sl,
+        "next_tp":        next_tp,
+        "block_reason":   block_reason,
     }
 
 

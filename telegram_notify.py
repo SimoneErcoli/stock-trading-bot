@@ -281,12 +281,23 @@ def send_analysis_cycle(
         vol_icon  = "✅" if vol >= 1.3 else "❌"
 
         # EMA50: valore + distanza %
-        ema50       = r.get("ema50", 0)
-        ema50_dist  = r.get("ema50_dist_pct")
-        ema50_str   = f"${ema50:.2f}"
+        ema50      = r.get("ema50", 0)
+        ema50_dist = r.get("ema50_dist_pct")
+        ema50_str  = f"${ema50:.2f}"
         if ema50_dist is not None:
             sign = "+" if ema50_dist >= 0 else ""
             ema50_str += f" ({sign}{ema50_dist:.1f}%)"
+
+        # VWAP: valore + distanza % + check
+        vwap      = r.get("vwap", 0)
+        vwap_ok   = r.get("vwap_ok")
+        vwap_dist = r.get("vwap_dist_pct")
+        if vwap and vwap > 0:
+            vwap_icon = "✅" if vwap_ok else "❌"
+            vwap_sign = "+" if (vwap_dist or 0) >= 0 else ""
+            vwap_str  = f"${vwap:.2f} ({vwap_sign}{vwap_dist:.1f}%) {vwap_icon}"
+        else:
+            vwap_str  = "n/d"
 
         # MACD histogram
         macd_hist = r.get("macd_hist", 0)
@@ -312,6 +323,7 @@ def send_analysis_cycle(
             f"<b>{symbol}</b> {sig_icon}\n"
             f"  💲 ${close:.2f} | RSI {rsi:.1f} | Vol {vol:.1f}x {vol_icon}\n"
             f"  EMA50 {ema50_str} {ema_icon}\n"
+            f"  VWAP {vwap_str}\n"
             f"  MACD {macd_str} {macd_icon}"
             f"{pos_lines}"
             f"{block_line}"

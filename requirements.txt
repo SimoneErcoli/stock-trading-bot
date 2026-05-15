@@ -7,3 +7,4 @@ python-dotenv>=1.0.0
 loguru>=0.7.0
 pytz>=2024.1
 requests>=2.31.0
+pytest>=8.0.0

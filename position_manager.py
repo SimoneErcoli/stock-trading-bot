@@ -5,7 +5,7 @@ Unica fonte di verità per lo stato locale del bot.
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -89,7 +89,7 @@ def open_position(
     pos.update(
         active=True,
         entry_price=entry_price,
-        entry_time=datetime.utcnow().isoformat(),
+        entry_time=datetime.now(UTC).isoformat(),
         shares=shares,
         size_usd=size_usd,
         order_id_entry=order_id_entry,
@@ -109,7 +109,7 @@ def open_position(
 def close_position(symbol: str) -> None:
     pos = get_position(symbol)
     pos["active"] = False
-    pos["last_closed_time"] = datetime.utcnow().isoformat()
+    pos["last_closed_time"] = datetime.now(UTC).isoformat()
     set_position(symbol, pos)
 
 
@@ -140,7 +140,7 @@ def seconds_since_close(symbol: str) -> float:
         return -1.0
     try:
         t = datetime.fromisoformat(closed_at)
-        return (datetime.utcnow() - t).total_seconds()
+        return (datetime.now(UTC) - t).total_seconds()
     except ValueError:
         return -1.0
 
