@@ -9,6 +9,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 import pandas as pd
+from alpaca.data.enums import DataFeed
 from alpaca.data.historical import StockHistoricalDataClient
 from alpaca.data.requests import StockBarsRequest
 from alpaca.data.timeframe import TimeFrame
@@ -106,6 +107,7 @@ def get_bars_1h(symbol: str, bars: int = 200) -> pd.DataFrame:
         start=start,
         end=end,
         limit=bars,
+        feed=DataFeed.IEX,
     )
     try:
         bars_data = _data().get_stock_bars(req)
@@ -131,6 +133,7 @@ def get_bars_daily(symbol: str, bars: int = 250) -> pd.DataFrame:
         start=start,
         end=end,
         limit=bars,
+        feed=DataFeed.IEX,
     )
     try:
         bars_data = _data().get_stock_bars(req)
